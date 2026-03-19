@@ -11,8 +11,9 @@ from linkjumper.browsers import print_browser_instructions
 from linkjumper.certs import generate_certs, remove_ca_trust, sign_server_cert, trust_ca
 from linkjumper.config import (
     BIND_ADDR, CERT_DIR, DEFAULT_REDIRECTS, PLIST_LABEL, PLIST_PATH,
-    REDIRECTS_PATH, WEBLOC_DIR,
-    get_prefix, load_redirects, load_settings, save_redirects, save_settings,
+    REDIRECTS_PATH, SETTINGS_PATH, WEBLOC_DIR,
+    ensure_data_dir, get_prefix, load_redirects, load_settings,
+    save_redirects, save_settings,
 )
 from linkjumper.system import (
     add_hosts_entry, add_loopback_alias, cleanup_dotgo_artifacts, flush_dns,
@@ -28,6 +29,7 @@ from linkjumper.webloc import (
 
 
 def cmd_setup(args):
+    ensure_data_dir()
     prefix = get_prefix()
     print("=== LinkJumper — Setup ===")
     print(f"  Prefix: {prefix}")
@@ -188,7 +190,7 @@ def cmd_config(args):
         settings = load_settings()
         print("LinkJumper configuration:")
         print(f"  prefix:  {settings.get('prefix', 'go')}")
-        print(f"  config:  {CERT_DIR.parent / 'config.json'}")
+        print(f"  config:  {SETTINGS_PATH}")
         return
 
     new_prefix = args.prefix.strip().lower()

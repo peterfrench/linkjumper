@@ -1,15 +1,16 @@
 """Shared constants, paths, and configuration helpers."""
 
 import json
+import os
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-PROJECT_DIR = Path(__file__).resolve().parent.parent
-REDIRECTS_PATH = PROJECT_DIR / "redirects.json"
-SETTINGS_PATH = PROJECT_DIR / "config.json"
-CERT_DIR = PROJECT_DIR / "certs"
+DATA_DIR = Path(os.environ.get("LINKJUMPER_DATA_DIR", "/usr/local/etc/linkjumper"))
+REDIRECTS_PATH = DATA_DIR / "redirects.json"
+SETTINGS_PATH = DATA_DIR / "config.json"
+CERT_DIR = DATA_DIR / "certs"
 WEBLOC_DIR = Path.home() / "Documents" / "LinkJumper"
 
 PLIST_LABEL = "com.linkjumper.redirect"
@@ -40,6 +41,19 @@ def save_settings(settings):
 
 def get_prefix():
     return load_settings().get("prefix", "go")
+
+
+def ensure_data_dir():
+    """Create the data directory if it doesn't exist.
+
+    When run under sudo, chown to the real user so non-root commands
+    (add, remove, list) can read/write config files.
+    """
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    uid = int(os.environ.get("SUDO_UID", -1))
+    gid = int(os.environ.get("SUDO_GID", -1))
+    if uid >= 0:
+        os.chown(DATA_DIR, uid, gid)
 
 
 # ---------------------------------------------------------------------------

@@ -2,11 +2,12 @@
 
 import re
 import subprocess
+import sys
 import textwrap
 from pathlib import Path
 
 from linkjumper.config import (
-    BIND_ADDR, ERR_PATH, LOG_PATH, PLIST_LABEL, PLIST_PATH, PROJECT_DIR,
+    BIND_ADDR, ERR_PATH, LOG_PATH, PLIST_LABEL, PLIST_PATH,
 )
 
 # ---------------------------------------------------------------------------
@@ -99,7 +100,7 @@ def cleanup_dotgo_artifacts():
 # ---------------------------------------------------------------------------
 
 def build_plist():
-    start_sh = PROJECT_DIR / "start.sh"
+    python = sys.executable
     return textwrap.dedent(f"""\
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
@@ -111,8 +112,9 @@ def build_plist():
 
             <key>ProgramArguments</key>
             <array>
-                <string>/bin/bash</string>
-                <string>{start_sh}</string>
+                <string>{python}</string>
+                <string>-m</string>
+                <string>linkjumper.server</string>
             </array>
 
             <key>RunAtLoad</key>
@@ -126,9 +128,6 @@ def build_plist():
 
             <key>StandardErrorPath</key>
             <string>{ERR_PATH}</string>
-
-            <key>WorkingDirectory</key>
-            <string>{PROJECT_DIR}</string>
         </dict>
         </plist>
     """)

@@ -59,8 +59,7 @@ def test_add_hosts_entry_when_present(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_build_plist_contains_label(tmp_project_dir):
+def test_build_plist_contains_label():
     xml = build_plist()
     assert "com.linkjumper.redirect" in xml
-    assert "start.sh" in xml
-    assert str(tmp_project_dir) in xml
+    assert "linkjumper.server" in xml

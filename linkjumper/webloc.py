@@ -1,6 +1,21 @@
 """Spotlight .webloc file management."""
 
+import os
+
 from linkjumper.config import WEBLOC_DIR
+
+
+def _ensure_webloc_dir():
+    """Create the webloc directory and ensure it's owned by the real user.
+
+    When running under sudo, the directory would otherwise be owned by root,
+    preventing non-sudo commands (like `linkjumper add`) from writing to it.
+    """
+    WEBLOC_DIR.mkdir(parents=True, exist_ok=True)
+    uid = int(os.environ.get("SUDO_UID", -1))
+    gid = int(os.environ.get("SUDO_GID", -1))
+    if uid >= 0:
+        os.chown(WEBLOC_DIR, uid, gid)
 
 
 def _webloc_path(prefix, key):
@@ -22,7 +37,7 @@ def _webloc_xml(url):
 
 
 def create_webloc(prefix, key, url):
-    WEBLOC_DIR.mkdir(parents=True, exist_ok=True)
+    _ensure_webloc_dir()
     _webloc_path(prefix, key).write_text(_webloc_xml(url))
 
 
@@ -32,7 +47,7 @@ def delete_webloc(prefix, key):
 
 def sync_weblocs(prefix, redirects):
     """Sync webloc files with current redirects: create missing, remove orphaned."""
-    WEBLOC_DIR.mkdir(parents=True, exist_ok=True)
+    _ensure_webloc_dir()
 
     for key, url in redirects.items():
         create_webloc(prefix, key, url)

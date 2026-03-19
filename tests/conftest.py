@@ -9,7 +9,6 @@ from linkjumper import config
 from linkjumper import certs
 from linkjumper import cli
 from linkjumper import server as server_mod
-from linkjumper import system
 from linkjumper import webloc
 
 
@@ -17,7 +16,7 @@ from linkjumper import webloc
 def tmp_project_dir(tmp_path, monkeypatch):
     """Temp directory with config.json, redirects.json, and certs/.
 
-    Monkeypatches PROJECT_DIR, REDIRECTS_PATH, SETTINGS_PATH, CERT_DIR
+    Monkeypatches DATA_DIR, REDIRECTS_PATH, SETTINGS_PATH, CERT_DIR
     in every module that imported them by name.
     """
     redirects_path = tmp_path / "redirects.json"
@@ -26,7 +25,7 @@ def tmp_project_dir(tmp_path, monkeypatch):
     cert_dir.mkdir()
 
     # config module (source of truth)
-    monkeypatch.setattr(config, "PROJECT_DIR", tmp_path)
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
     monkeypatch.setattr(config, "REDIRECTS_PATH", redirects_path)
     monkeypatch.setattr(config, "SETTINGS_PATH", settings_path)
     monkeypatch.setattr(config, "CERT_DIR", cert_dir)
@@ -35,9 +34,9 @@ def tmp_project_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(server_mod, "REDIRECTS_PATH", redirects_path)
     monkeypatch.setattr(server_mod, "SETTINGS_PATH", settings_path)
     monkeypatch.setattr(certs, "CERT_DIR", cert_dir)
-    monkeypatch.setattr(system, "PROJECT_DIR", tmp_path)
     monkeypatch.setattr(cli, "CERT_DIR", cert_dir)
     monkeypatch.setattr(cli, "REDIRECTS_PATH", redirects_path)
+    monkeypatch.setattr(cli, "SETTINGS_PATH", settings_path)
 
     return tmp_path
 

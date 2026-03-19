@@ -201,6 +201,17 @@ def run_https():
 
 
 def main():
+    from linkjumper.config import ensure_data_dir
+    from linkjumper.system import add_loopback_alias
+
+    ensure_data_dir()
+
+    # Ensure loopback alias exists (needed after reboot)
+    try:
+        add_loopback_alias()
+    except Exception as e:
+        print(f"Warning: could not add loopback alias: {e}", flush=True)
+
     reload_all()
     signal.signal(signal.SIGHUP, reload_all)
 
