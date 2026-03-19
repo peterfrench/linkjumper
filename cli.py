@@ -3,9 +3,11 @@
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
+import tempfile
 import textwrap
 from pathlib import Path
 
@@ -15,6 +17,8 @@ from pathlib import Path
 PROJECT_DIR = Path(__file__).resolve().parent
 REDIRECTS_PATH = PROJECT_DIR / "redirects.json"
 SETTINGS_PATH = PROJECT_DIR / "config.json"
+CERT_DIR = PROJECT_DIR / "certs"
+WEBLOC_DIR = Path.home() / "Documents" / "LinkJumper"
 PLIST_LABEL = "com.linkjumper.redirect"
 PLIST_PATH = f"/Library/LaunchDaemons/{PLIST_LABEL}.plist"
 BIND_ADDR = "127.0.0.2"
@@ -41,6 +45,66 @@ def save_settings(settings):
 
 def get_prefix():
     return load_settings().get("prefix", "go")
+
+
+# ---------------------------------------------------------------------------
+# Webloc helpers (Spotlight integration)
+# ---------------------------------------------------------------------------
+
+def _webloc_path(prefix, key):
+    return WEBLOC_DIR / f"{prefix} {key}.webloc"
+
+
+def _webloc_xml(url):
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"\n'
+        '  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+        '<plist version="1.0">\n'
+        '<dict>\n'
+        '    <key>URL</key>\n'
+        f'    <string>{url}</string>\n'
+        '</dict>\n'
+        '</plist>\n'
+    )
+
+
+def create_webloc(prefix, key, url):
+    WEBLOC_DIR.mkdir(parents=True, exist_ok=True)
+    _webloc_path(prefix, key).write_text(_webloc_xml(url))
+
+
+def delete_webloc(prefix, key):
+    _webloc_path(prefix, key).unlink(missing_ok=True)
+
+
+def sync_weblocs(prefix, redirects):
+    """Sync webloc files with current redirects: create missing, remove orphaned."""
+    WEBLOC_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Create/update weblocs for all current redirects
+    for key, url in redirects.items():
+        create_webloc(prefix, key, url)
+
+    # Remove orphaned weblocs (prefix matches but key no longer in redirects)
+    for f in WEBLOC_DIR.glob(f"{prefix} *.webloc"):
+        stem = f.stem  # e.g. "go gh"
+        parts = stem.split(" ", 1)
+        if len(parts) == 2 and parts[0] == prefix and parts[1] not in redirects:
+            f.unlink()
+
+
+def remove_all_weblocs(prefix):
+    """Remove all webloc files for the given prefix."""
+    if not WEBLOC_DIR.exists():
+        return
+    for f in WEBLOC_DIR.glob(f"{prefix} *.webloc"):
+        f.unlink()
+    # Remove directory if empty
+    try:
+        WEBLOC_DIR.rmdir()
+    except OSError:
+        pass
 
 
 def load_redirects():
@@ -118,7 +182,6 @@ def remove_loopback_alias():
 def cleanup_dotgo_artifacts():
     """Remove artifacts from the *.go DNS/HTTPS experiment if present."""
     resolver = Path("/etc/resolver/go")
-    cert_dir = PROJECT_DIR / "certs"
     changed = False
 
     if resolver.exists():
@@ -126,17 +189,157 @@ def cleanup_dotgo_artifacts():
         print("      Cleaned up /etc/resolver/go")
         changed = True
 
-    if (cert_dir / "ca.pem").exists():
-        subprocess.run(
-            ["sudo", "security", "remove-trusted-cert", "-d",
-             str(cert_dir / "ca.pem")],
-            capture_output=True,
-        )
-        print("      Removed old CA from keychain")
-        changed = True
-
     if changed:
         flush_dns()
+
+
+def generate_certs(prefix):
+    """Generate CA (if missing) and server certificate for the prefix hostname."""
+    CERT_DIR.mkdir(parents=True, exist_ok=True)
+    ca_key = CERT_DIR / "ca-key.pem"
+    ca_cert = CERT_DIR / "ca.pem"
+    srv_key = CERT_DIR / "server-key.pem"
+
+    # CA
+    if not ca_key.exists() or not ca_cert.exists():
+        _run_openssl(
+            ["openssl", "genrsa", "-out", str(ca_key), "2048"],
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ca_cnf = Path(tmpdir) / "ca.cnf"
+            ca_cnf.write_text(
+                "[req]\n"
+                "distinguished_name = dn\n"
+                "prompt = no\n"
+                "x509_extensions = v3_ca\n"
+                "[dn]\n"
+                "CN = LinkJumper Local CA\n"
+                "[v3_ca]\n"
+                "basicConstraints = critical, CA:TRUE\n"
+                "keyUsage = critical, keyCertSign, cRLSign\n"
+                "subjectKeyIdentifier = hash\n"
+            )
+            _run_openssl(
+                ["openssl", "req", "-new", "-x509",
+                 "-config", str(ca_cnf),
+                 "-key", str(ca_key), "-out", str(ca_cert),
+                 "-days", "3650"],
+            )
+
+    # Server key
+    if not srv_key.exists():
+        _run_openssl(
+            ["openssl", "genrsa", "-out", str(srv_key), "2048"],
+        )
+
+    # Server cert signed by CA
+    _sign_server_cert(prefix)
+
+
+def _run_openssl(cmd):
+    """Run an openssl command, showing stderr on failure."""
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        detail = (r.stderr or r.stdout or "").strip()
+        raise RuntimeError(
+            f"openssl failed (exit {r.returncode}): {' '.join(cmd)}\n  {detail}"
+        )
+
+
+def _sign_server_cert(prefix):
+    """Issue a server certificate for the given prefix hostname."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+        csr = tmp / "server.csr"
+        san_cnf = tmp / "san.cnf"
+        req_cnf = tmp / "req.cnf"
+
+        # Minimal config so LibreSSL doesn't depend on a system openssl.cnf
+        req_cnf.write_text(
+            "[req]\n"
+            "distinguished_name = dn\n"
+            "prompt = no\n"
+            "[dn]\n"
+            f"CN = {prefix}\n"
+        )
+
+        _run_openssl(
+            ["openssl", "req", "-new",
+             "-config", str(req_cnf),
+             "-key", str(CERT_DIR / "server-key.pem"),
+             "-out", str(csr)],
+        )
+        san_cnf.write_text(
+            "[v3_req]\n"
+            f"subjectAltName = DNS:{prefix}, IP:{BIND_ADDR}\n"
+            "basicConstraints = critical, CA:FALSE\n"
+            "extendedKeyUsage = serverAuth\n"
+            "keyUsage = critical, digitalSignature, keyEncipherment\n"
+        )
+        _run_openssl(
+            ["openssl", "x509", "-req",
+             "-in", str(csr),
+             "-CA", str(CERT_DIR / "ca.pem"),
+             "-CAkey", str(CERT_DIR / "ca-key.pem"),
+             "-CAcreateserial",
+             "-out", str(CERT_DIR / "server.pem"),
+             "-days", "398",
+             "-extfile", str(san_cnf),
+             "-extensions", "v3_req"],
+        )
+    (CERT_DIR / "ca.srl").unlink(missing_ok=True)
+
+
+def trust_ca():
+    subprocess.run(
+        ["sudo", "security", "add-trusted-cert", "-d", "-r", "trustRoot",
+         "-p", "ssl", "-k", "/Library/Keychains/System.keychain",
+         str(CERT_DIR / "ca.pem")],
+        check=True,
+    )
+
+
+def remove_ca_trust():
+    """Remove all LinkJumper CA certificates from the System keychain."""
+    # Find all matching cert hashes — delete-certificate -c fails when
+    # there are duplicates, so we must delete by SHA-1 hash.
+    r = subprocess.run(
+        ["security", "find-certificate", "-a", "-c", "LinkJumper Local CA",
+         "-Z", "/Library/Keychains/System.keychain"],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        return False
+
+    hashes = re.findall(r"SHA-1 hash:\s+([0-9A-F]+)", r.stdout)
+    if not hashes:
+        return False
+
+    for h in hashes:
+        # Try to delete the cert from the keychain
+        d = subprocess.run(
+            ["sudo", "security", "delete-certificate",
+             "-Z", h, "/Library/Keychains/System.keychain"],
+            capture_output=True,
+        )
+        if d.returncode != 0:
+            # Deletion blocked — export the cert and explicitly deny trust instead.
+            # This has the same practical effect (browsers won't trust it).
+            export = subprocess.run(
+                ["security", "find-certificate", "-Z", h,
+                 "-p", "/Library/Keychains/System.keychain"],
+                capture_output=True, text=True,
+            )
+            if export.returncode == 0 and export.stdout.strip():
+                tmp = PROJECT_DIR / "certs" / f"_deny_{h}.pem"
+                tmp.write_text(export.stdout)
+                subprocess.run(
+                    ["sudo", "security", "add-trusted-cert", "-d",
+                     "-r", "deny", "-k", "/Library/Keychains/System.keychain",
+                     str(tmp)],
+                )
+                tmp.unlink(missing_ok=True)
+    return True
 
 
 def build_plist():
@@ -214,28 +417,45 @@ def cmd_setup(args):
 
     # 1. /etc/hosts
     if add_hosts_entry(prefix):
-        print(f"[1/3] Added '{BIND_ADDR}\t{prefix}' to /etc/hosts")
+        print(f"[1/6] Added '{BIND_ADDR}\t{prefix}' to /etc/hosts")
     else:
-        print(f"[1/3] /etc/hosts already has '{prefix}' entry.")
+        print(f"[1/6] /etc/hosts already has '{prefix}' entry.")
     flush_dns()
     print("      DNS cache flushed.")
 
     # 2. Loopback alias
     if add_loopback_alias():
-        print(f"[2/3] Added loopback alias {BIND_ADDR}")
+        print(f"[2/6] Added loopback alias {BIND_ADDR}")
     else:
-        print(f"[2/3] Loopback alias {BIND_ADDR} already active.")
+        print(f"[2/6] Loopback alias {BIND_ADDR} already active.")
 
-    # 3. launchd
-    print("[3/3] Installing launchd daemon ...")
+    # 3. SSL certificates
+    print(f"[3/6] Generating SSL certificate for '{prefix}' ...")
+    generate_certs(prefix)
+    print(f"      Certificates written to {CERT_DIR}/")
+
+    # 4. Trust CA (remove any old ones first)
+    print("[4/6] Trusting CA certificate (you may be prompted for your password) ...")
+    remove_ca_trust()
+    trust_ca()
+    print("      CA trusted in System keychain.")
+
+    # 5. launchd
+    print("[5/6] Installing launchd daemon ...")
     install_launchd()
     print("      Service started.")
+
+    # 6. Sync Spotlight webloc files
+    redirects = load_redirects()
+    sync_weblocs(prefix, redirects)
+    print(f"[6/6] Synced {len(redirects)} Spotlight webloc file(s) to {WEBLOC_DIR}/")
 
     print()
     print("=== Done! ===")
     print()
     print(f"  Open in browser:  http://{prefix}/")
     print(f"  Example:          http://{prefix}/gh  ->  https://github.com")
+    print(f"  Spotlight:        Cmd+Space, type '{prefix} gh', press Enter")
     print()
     print(f"  Safari tip:       {prefix}/gh/ (trailing slash) navigates directly.")
     print(f"  Run `linkjumper browser` for browser-specific setup tips.")
@@ -251,25 +471,37 @@ def cmd_teardown(args):
 
     # 1. launchd
     if Path(PLIST_PATH).exists():
-        print("[1/3] Stopping and removing service ...")
+        print("[1/5] Stopping and removing service ...")
         remove_launchd()
         print("      Done.")
     else:
-        print("[1/3] No launchd service found — skipping.")
+        print("[1/5] No launchd service found — skipping.")
 
-    # 2. /etc/hosts
+    # 2. CA trust
+    if (CERT_DIR / "ca.pem").exists():
+        print("[2/5] Removing CA certificate from System keychain ...")
+        remove_ca_trust()
+        print("      Done.")
+    else:
+        print("[2/5] No CA certificate found — skipping.")
+
+    # 3. /etc/hosts
     if remove_hosts_entry(prefix):
-        print(f"[2/3] Removed '{prefix}' from /etc/hosts")
+        print(f"[3/5] Removed '{prefix}' from /etc/hosts")
         flush_dns()
         print("      DNS cache flushed.")
     else:
-        print(f"[2/3] No '{prefix}' entry in /etc/hosts — skipping.")
+        print(f"[3/5] No '{prefix}' entry in /etc/hosts — skipping.")
 
-    # 3. Loopback alias
+    # 4. Loopback alias
     if remove_loopback_alias():
-        print(f"[3/3] Removed loopback alias {BIND_ADDR}")
+        print(f"[4/5] Removed loopback alias {BIND_ADDR}")
     else:
-        print("[3/3] No loopback alias found — skipping.")
+        print("[4/5] No loopback alias found — skipping.")
+
+    # 5. Remove Spotlight webloc files
+    remove_all_weblocs(prefix)
+    print("[5/5] Removed Spotlight webloc files.")
 
     print()
     print("=== Teardown complete ===")
@@ -307,6 +539,7 @@ def cmd_add(args):
         save_redirects(redirects)
         print(f"Added: {pfx}/{key}  ->  {url}")
 
+    create_webloc(pfx, key, url)
     print("Server will pick up the change automatically.")
 
 
@@ -321,6 +554,7 @@ def cmd_remove(args):
 
     url = redirects.pop(key)
     save_redirects(redirects)
+    delete_webloc(pfx, key)
     print(f"Removed: {pfx}/{key}  ->  {url}")
     print("Server will pick up the change automatically.")
 
@@ -347,6 +581,10 @@ def cmd_config(args):
         print(f"Prefix is already '{old_prefix}'.")
         return
 
+    if not (CERT_DIR / "ca.pem").exists():
+        print("Error: SSL CA not found. Run `linkjumper setup` first.")
+        sys.exit(1)
+
     print(f"Changing prefix: {old_prefix} -> {new_prefix}")
 
     # Update /etc/hosts
@@ -355,11 +593,20 @@ def cmd_config(args):
     add_hosts_entry(new_prefix)
     flush_dns()
 
+    # Regenerate server cert with new hostname
+    print("  Regenerating SSL certificate ...")
+    _sign_server_cert(new_prefix)
+
+    # Rename webloc files from old prefix to new
+    print("  Updating Spotlight webloc files ...")
+    remove_all_weblocs(old_prefix)
+    sync_weblocs(new_prefix, load_redirects())
+
     # Save
     settings["prefix"] = new_prefix
     save_settings(settings)
 
-    # Restart service
+    # Restart service to pick up new cert
     print("  Restarting service ...")
     subprocess.run(["sudo", "launchctl", "bootout", f"system/{PLIST_LABEL}"],
                    capture_output=True)
@@ -368,6 +615,13 @@ def cmd_config(args):
 
     print(f"\nDone! Shortcuts are now at: {new_prefix}/")
     print(f"  Example: {new_prefix}/gh  ->  https://github.com")
+
+
+def cmd_go(args):
+    prefix = get_prefix()
+    key = args.key.strip("/")
+    url = f"http://{prefix}/{key}/"
+    subprocess.run(["open", url])
 
 
 def cmd_start(args):
@@ -396,6 +650,7 @@ def cmd_stop(args):
     else:
         print(f"Failed to stop: {result.stderr.strip()}")
         sys.exit(1)
+
 
 
 # ---------------------------------------------------------------------------
@@ -558,6 +813,9 @@ def main():
     p_cfg.add_argument("--prefix", help="Set the URL prefix (default: go)",
                        default=None)
 
+    p_go = subs.add_parser("go", help="Open a shortcut in the default browser")
+    p_go.add_argument("key", help="Short name to open (e.g. 'gh')")
+
     subs.add_parser("start", help="Start the LinkJumper service")
     subs.add_parser("stop", help="Stop the LinkJumper service")
     subs.add_parser("browser", help="Show browser setup instructions")
@@ -571,12 +829,23 @@ def main():
         "add": cmd_add,
         "remove": cmd_remove, "rm": cmd_remove,
         "config": cmd_config,
+        "go": cmd_go,
         "start": cmd_start,
         "stop": cmd_stop,
         "browser": cmd_browser,
     }
 
+    NEEDS_ROOT = {"setup", "teardown", "start", "stop"}
+
     if args.command in handlers:
+        if args.command in NEEDS_ROOT and os.geteuid() != 0:
+            print(f"Error: 'linkjumper {args.command}' must be run as root.")
+            print(f"  Try: sudo linkj {args.command}")
+            sys.exit(1)
+        if args.command == "config" and args.prefix is not None and os.geteuid() != 0:
+            print("Error: 'linkjumper config --prefix' must be run as root.")
+            print("  Try: sudo linkj config --prefix <name>")
+            sys.exit(1)
         handlers[args.command](args)
     else:
         parser.print_help()

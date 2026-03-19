@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """LinkJumper: Local URL shortener service for macOS.
 
-Binds to 127.0.0.2 on port 80 (HTTP).
+Binds to 127.0.0.2 on ports 80 (HTTP) and 443 (HTTPS).
 Reads redirect mappings from redirects.json in the same directory.
 Send SIGHUP to reload configuration without restart.
 """
@@ -10,6 +10,7 @@ import html as html_module
 import http.server
 import json
 import signal
+import ssl
 import sys
 import threading
 import time
@@ -19,6 +20,7 @@ from urllib.parse import unquote
 SCRIPT_DIR = Path(__file__).resolve().parent
 REDIRECTS_PATH = SCRIPT_DIR / "redirects.json"
 SETTINGS_PATH = SCRIPT_DIR / "config.json"
+CERT_DIR = SCRIPT_DIR / "certs"
 BIND_ADDR = "127.0.0.2"
 
 prefix = "go"
@@ -186,16 +188,37 @@ def watch_config():
         time.sleep(2)
 
 
+def run_https():
+    cert_file = CERT_DIR / "server.pem"
+    key_file = CERT_DIR / "server-key.pem"
+
+    if not cert_file.exists() or not key_file.exists():
+        print("No SSL certs found — HTTPS disabled. Run `linkjumper setup`.",
+              flush=True)
+        return
+
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.load_cert_chain(str(cert_file), str(key_file))
+
+    server = http.server.ThreadingHTTPServer((BIND_ADDR, 443), LinkJumperHandler)
+    server.socket = ctx.wrap_socket(server.socket, server_side=True)
+    print(f"HTTPS listening on {BIND_ADDR}:443", flush=True)
+    server.serve_forever()
+
+
 def main():
     reload_all()
     signal.signal(signal.SIGHUP, reload_all)
 
-    # Start HTTP server on port 80
-    server = http.server.ThreadingHTTPServer((BIND_ADDR, 80), LinkJumperHandler)
-    print(f"HTTP listening on {BIND_ADDR}:80", flush=True)
+    # Start HTTPS on port 443
+    threading.Thread(target=run_https, daemon=True).start()
 
     # Watch config files for changes (enables sudo-free reload via CLI)
     threading.Thread(target=watch_config, daemon=True).start()
+
+    # Run HTTP on port 80 (main thread)
+    server = http.server.ThreadingHTTPServer((BIND_ADDR, 80), LinkJumperHandler)
+    print(f"HTTP  listening on {BIND_ADDR}:80", flush=True)
 
     try:
         server.serve_forever()
