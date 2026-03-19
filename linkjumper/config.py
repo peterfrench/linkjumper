@@ -46,6 +46,16 @@ def get_prefix():
 # Redirects
 # ---------------------------------------------------------------------------
 
+DEFAULT_REDIRECTS = {
+    "gh": "https://github.com",
+    "mail": "https://mail.google.com",
+    "cal": "https://calendar.google.com",
+    "docs": "https://docs.google.com",
+    "drive": "https://drive.google.com",
+    "yt": "https://youtube.com",
+}
+
+
 def load_redirects():
     try:
         with open(REDIRECTS_PATH) as f:

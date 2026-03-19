@@ -10,7 +10,8 @@ from pathlib import Path
 from linkjumper.browsers import print_browser_instructions
 from linkjumper.certs import generate_certs, remove_ca_trust, sign_server_cert, trust_ca
 from linkjumper.config import (
-    BIND_ADDR, CERT_DIR, PLIST_LABEL, PLIST_PATH, WEBLOC_DIR,
+    BIND_ADDR, CERT_DIR, DEFAULT_REDIRECTS, PLIST_LABEL, PLIST_PATH,
+    REDIRECTS_PATH, WEBLOC_DIR,
     get_prefix, load_redirects, load_settings, save_redirects, save_settings,
 )
 from linkjumper.system import (
@@ -65,10 +66,13 @@ def cmd_setup(args):
     install_launchd()
     print("      Service started.")
 
-    # 6. Sync Spotlight webloc files
+    # 6. Seed default redirects if redirects.json is missing, then sync weblocs
+    if not REDIRECTS_PATH.exists():
+        save_redirects(DEFAULT_REDIRECTS)
+        print(f"[6/6] Created redirects.json with {len(DEFAULT_REDIRECTS)} default shortcut(s)")
     redirects = load_redirects()
     sync_weblocs(prefix, redirects)
-    print(f"[6/6] Synced {len(redirects)} Spotlight webloc file(s) to {WEBLOC_DIR}/")
+    print(f"      Synced {len(redirects)} Spotlight webloc file(s) to {WEBLOC_DIR}/")
 
     print()
     print("=== Done! ===")

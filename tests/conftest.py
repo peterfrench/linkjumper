@@ -37,6 +37,7 @@ def tmp_project_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(certs, "CERT_DIR", cert_dir)
     monkeypatch.setattr(system, "PROJECT_DIR", tmp_path)
     monkeypatch.setattr(cli, "CERT_DIR", cert_dir)
+    monkeypatch.setattr(cli, "REDIRECTS_PATH", redirects_path)
 
     return tmp_path
 
