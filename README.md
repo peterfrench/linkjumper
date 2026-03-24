@@ -27,8 +27,7 @@ sudo linkjumper setup
 ```bash
 git clone https://github.com/peterfrench/linkjumper.git
 cd linkjumper
-pip3 install -e .
-sudo linkjumper setup
+sudo bash install.sh
 ```
 
 Setup configures `/etc/hosts`, generates SSL certificates, trusts the CA in your keychain, and starts a background service via launchd. You'll be prompted for your password.

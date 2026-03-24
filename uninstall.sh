@@ -1,19 +1,17 @@
 #!/bin/bash
 # LinkJumper uninstaller.
-# Runs teardown for system cleanup, then removes CLI symlinks.
+# Runs teardown for system cleanup, then removes CLI wrappers.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # ── 1. System teardown ───────────────────────────────────────────────────────
-python3 "${SCRIPT_DIR}/cli.py" teardown
+PYTHONPATH="${SCRIPT_DIR}" /usr/bin/python3 -m linkjumper teardown
 
-# ── 2. Remove CLI symlinks ───────────────────────────────────────────────────
-if [ -L /usr/local/bin/linkjumper ] || [ -L /usr/local/bin/linkj ]; then
-    echo "Removing CLI symlinks ..."
-    sudo rm -f /usr/local/bin/linkjumper /usr/local/bin/linkj
-    echo "  Done."
-fi
+# ── 2. Remove CLI wrappers ───────────────────────────────────────────────────
+echo "Removing CLI wrappers ..."
+sudo rm -f /usr/local/bin/linkjumper /usr/local/bin/linkj
+echo "  Done."
 
 echo ""
 echo "Files in ${SCRIPT_DIR} were preserved."
