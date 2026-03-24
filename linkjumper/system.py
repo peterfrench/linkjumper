@@ -101,6 +101,8 @@ def cleanup_dotgo_artifacts():
 
 def build_plist():
     python = sys.executable
+    # The parent of the linkjumper package directory
+    package_root = str(Path(__file__).resolve().parent.parent)
     return textwrap.dedent(f"""\
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
@@ -109,6 +111,12 @@ def build_plist():
         <dict>
             <key>Label</key>
             <string>{PLIST_LABEL}</string>
+
+            <key>EnvironmentVariables</key>
+            <dict>
+                <key>PYTHONPATH</key>
+                <string>{package_root}</string>
+            </dict>
 
             <key>ProgramArguments</key>
             <array>

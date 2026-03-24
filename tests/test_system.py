@@ -63,3 +63,4 @@ def test_build_plist_contains_label():
     xml = build_plist()
     assert "com.linkjumper.redirect" in xml
     assert "linkjumper.server" in xml
+    assert "PYTHONPATH" in xml
