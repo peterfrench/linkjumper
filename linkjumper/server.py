@@ -13,9 +13,13 @@ import ssl
 import sys
 import threading
 import time
-from urllib.parse import unquote
+from urllib.parse import parse_qs, unquote
 
-from linkjumper.config import BIND_ADDR, CERT_DIR, REDIRECTS_PATH, SETTINGS_PATH
+from linkjumper.config import (
+    BIND_ADDR, CERT_DIR, REDIRECTS_PATH, SETTINGS_PATH,
+    save_redirects as _save_redirects,
+)
+from linkjumper.webloc import create_webloc, delete_webloc
 
 prefix = "go"
 redirects = {}
@@ -89,6 +93,33 @@ class LinkJumperHandler(http.server.BaseHTTPRequestHandler):
         else:
             self.send_not_found(key)
 
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length).decode()
+        params = parse_qs(body)
+        action = params.get("action", [""])[0]
+
+        if action == "add":
+            key = params.get("key", [""])[0].strip().strip("/")
+            url = params.get("url", [""])[0].strip()
+            if key and url:
+                if "://" not in url:
+                    url = "https://" + url
+                redirects[key] = url
+                _save_redirects(redirects)
+                create_webloc(prefix, key, url)
+
+        elif action == "remove":
+            key = params.get("key", [""])[0].strip()
+            if key and key in redirects:
+                del redirects[key]
+                _save_redirects(redirects)
+                delete_webloc(prefix, key)
+
+        self.send_response(303)
+        self.send_header("Location", "/")
+        self.end_headers()
+
     def do_HEAD(self):
         self.do_GET()
 
@@ -99,13 +130,19 @@ class LinkJumperHandler(http.server.BaseHTTPRequestHandler):
 
         pfx = html_module.escape(prefix)
         rows = ""
-        for key in sorted(redirects):
+        for i, key in enumerate(sorted(redirects)):
             escaped_url = html_module.escape(redirects[key])
             escaped_key = html_module.escape(key)
+            tab = i + 4
             rows += (
                 f"<tr>"
-                f'<td><a href="/{escaped_key}">{pfx}/{escaped_key}</a></td>'
+                f'<td><a href="/{escaped_key}" tabindex="{tab}">{pfx}/{escaped_key}</a></td>'
                 f"<td><code>{escaped_url}</code></td>"
+                f'<td><form method="POST" style="margin:0">'
+                f'<input type="hidden" name="action" value="remove">'
+                f'<input type="hidden" name="key" value="{escaped_key}">'
+                f'<button type="submit" class="rm">&times;</button>'
+                f"</form></td>"
                 f"</tr>\n"
             )
 
@@ -123,17 +160,35 @@ class LinkJumperHandler(http.server.BaseHTTPRequestHandler):
   th, td {{ text-align: left; padding: 10px 14px; border-bottom: 1px solid #e5e5e7; }}
   th {{ background: #f5f5f7; font-size: 13px; text-transform: uppercase;
        letter-spacing: 0.5px; color: #86868b; }}
+  td:last-child {{ width: 1%; white-space: nowrap; }}
   a {{ color: #0066cc; text-decoration: none; }}
   a:hover {{ text-decoration: underline; }}
   code {{ background: #f5f5f7; padding: 2px 6px; border-radius: 4px; font-size: 13px; }}
+  .add-form {{ display: flex; gap: 8px; margin-top: 24px; }}
+  .add-form input {{ padding: 8px 12px; border: 1px solid #d2d2d7; border-radius: 8px;
+                     font-size: 14px; font-family: inherit; }}
+  .add-form input[name="key"] {{ width: 120px; }}
+  .add-form input[name="url"] {{ flex: 1; }}
+  .add-form button {{ padding: 8px 16px; background: #0066cc; color: white;
+                      border: none; border-radius: 8px; font-size: 14px;
+                      cursor: pointer; font-family: inherit; }}
+  .add-form button:hover {{ background: #0055b3; }}
+  .rm {{ background: none; border: none; color: #86868b; cursor: pointer;
+         font-size: 18px; padding: 0 4px; line-height: 1; }}
+  .rm:hover {{ color: #ff3b30; }}
 </style>
 </head>
 <body>
 <h1>LinkJumper</h1>
-<p>{len(redirects)} shortcut{"s" if len(redirects) != 1 else ""} configured.
-   Manage with: <code>linkjumper add &lt;key&gt; &lt;url&gt;</code></p>
+<p>{len(redirects)} shortcut{"s" if len(redirects) != 1 else ""} configured.</p>
+<form method="POST" class="add-form">
+  <input type="hidden" name="action" value="add">
+  <input type="text" name="key" placeholder="key" required autofocus tabindex="1">
+  <input type="text" name="url" placeholder="https://example.com" required tabindex="2">
+  <button type="submit" tabindex="3">Add</button>
+</form>
 <table>
-<tr><th>Shortcut</th><th>Destination</th></tr>
+<tr><th>Shortcut</th><th>Destination</th><th></th></tr>
 {rows}</table>
 </body>
 </html>"""

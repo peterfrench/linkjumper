@@ -1,6 +1,7 @@
 """Tests for linkjumper.server — HTTP handler and config reload."""
 
 import http.client
+from urllib.parse import urlencode
 
 from linkjumper import server as server_mod
 
@@ -88,6 +89,90 @@ def test_head_request(http_server):
     conn.request("HEAD", "/gh")
     resp = conn.getresponse()
     assert resp.status == 302
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# POST tests (add / remove via web UI)
+# ---------------------------------------------------------------------------
+
+
+def test_post_add_shortcut(http_server):
+    host, port = http_server
+    conn = http.client.HTTPConnection(host, port)
+    body = urlencode({"action": "add", "key": "test", "url": "https://example.com"})
+    conn.request("POST", "/", body, {"Content-Type": "application/x-www-form-urlencoded"})
+    resp = conn.getresponse()
+    assert resp.status == 303
+    assert resp.getheader("Location") == "/"
+    assert server_mod.redirects["test"] == "https://example.com"
+    conn.close()
+
+
+def test_post_add_prepends_https(http_server):
+    host, port = http_server
+    conn = http.client.HTTPConnection(host, port)
+    body = urlencode({"action": "add", "key": "ex", "url": "example.com"})
+    conn.request("POST", "/", body, {"Content-Type": "application/x-www-form-urlencoded"})
+    resp = conn.getresponse()
+    resp.read()
+    assert server_mod.redirects["ex"] == "https://example.com"
+    conn.close()
+
+
+def test_post_add_preserves_http(http_server):
+    host, port = http_server
+    conn = http.client.HTTPConnection(host, port)
+    body = urlencode({"action": "add", "key": "ex", "url": "http://example.com"})
+    conn.request("POST", "/", body, {"Content-Type": "application/x-www-form-urlencoded"})
+    resp = conn.getresponse()
+    resp.read()
+    assert server_mod.redirects["ex"] == "http://example.com"
+    conn.close()
+
+
+def test_post_remove_shortcut(http_server):
+    host, port = http_server
+    conn = http.client.HTTPConnection(host, port)
+    body = urlencode({"action": "remove", "key": "gh"})
+    conn.request("POST", "/", body, {"Content-Type": "application/x-www-form-urlencoded"})
+    resp = conn.getresponse()
+    assert resp.status == 303
+    assert "gh" not in server_mod.redirects
+    conn.close()
+
+
+def test_post_remove_missing_key_is_noop(http_server):
+    host, port = http_server
+    conn = http.client.HTTPConnection(host, port)
+    before = dict(server_mod.redirects)
+    body = urlencode({"action": "remove", "key": "nonexistent"})
+    conn.request("POST", "/", body, {"Content-Type": "application/x-www-form-urlencoded"})
+    resp = conn.getresponse()
+    assert resp.status == 303
+    assert server_mod.redirects == before
+    conn.close()
+
+
+def test_index_has_add_form(http_server):
+    host, port = http_server
+    conn = http.client.HTTPConnection(host, port)
+    conn.request("GET", "/")
+    resp = conn.getresponse()
+    body = resp.read().decode()
+    assert 'name="action" value="add"' in body
+    assert 'name="key"' in body
+    assert 'name="url"' in body
+    conn.close()
+
+
+def test_index_has_remove_buttons(http_server):
+    host, port = http_server
+    conn = http.client.HTTPConnection(host, port)
+    conn.request("GET", "/")
+    resp = conn.getresponse()
+    body = resp.read().decode()
+    assert 'value="remove"' in body
     conn.close()
 
 

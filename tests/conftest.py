@@ -71,6 +71,10 @@ def http_server(monkeypatch):
         "redirects",
         {"gh": "https://github.com", "mail": "https://mail.google.com"},
     )
+    # Prevent POST handlers from writing to disk during tests
+    monkeypatch.setattr(server_mod, "_save_redirects", lambda r: None)
+    monkeypatch.setattr(server_mod, "create_webloc", lambda p, k, u: None)
+    monkeypatch.setattr(server_mod, "delete_webloc", lambda p, k: None)
 
     httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), LinkJumperHandler)
     host, port = httpd.server_address
