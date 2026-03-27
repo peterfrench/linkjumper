@@ -3,6 +3,7 @@
 import argparse
 import os
 import re
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -22,6 +23,24 @@ from linkjumper.system import (
 from linkjumper.webloc import (
     create_webloc, delete_webloc, remove_all_weblocs, sync_weblocs,
 )
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _signal_server_reload():
+    """Send SIGHUP to the running server so it reloads redirects immediately."""
+    try:
+        result = subprocess.run(
+            ["pgrep", "-f", "linkjumper.server"],
+            capture_output=True, text=True,
+        )
+        for pid in result.stdout.strip().splitlines():
+            os.kill(int(pid), signal.SIGHUP)
+    except (ProcessLookupError, ValueError, OSError):
+        pass
+
 
 # ---------------------------------------------------------------------------
 # Commands
@@ -174,7 +193,13 @@ def cmd_add(args):
     print(f"  {shortcut_url}")
 
     create_webloc(pfx, key, url)
-    print("Server will pick up the change automatically.")
+
+    settings = load_settings()
+    if settings.get("auto_open", False):
+        _signal_server_reload()
+        subprocess.run(["open", shortcut_url])
+    else:
+        print("Server will pick up the change automatically.")
 
 
 def cmd_remove(args):
@@ -194,11 +219,29 @@ def cmd_remove(args):
 
 
 def cmd_config(args):
-    if args.prefix is None:
+    if args.prefix is None and args.auto_open is None:
         settings = load_settings()
         print("LinkJumper configuration:")
-        print(f"  prefix:  {settings.get('prefix', 'go')}")
-        print(f"  config:  {SETTINGS_PATH}")
+        print(f"  prefix:     {settings.get('prefix', 'go')}")
+        print(f"  auto_open:  {settings.get('auto_open', False)}")
+        print(f"  config:     {SETTINGS_PATH}")
+        return
+
+    settings = load_settings()
+
+    if args.auto_open is not None:
+        val = args.auto_open.lower()
+        if val in ("true", "1", "yes", "on"):
+            settings["auto_open"] = True
+        elif val in ("false", "0", "no", "off"):
+            settings["auto_open"] = False
+        else:
+            print("Error: --auto-open must be true/false, yes/no, on/off, or 1/0.")
+            sys.exit(1)
+        save_settings(settings)
+        print(f"auto_open set to {settings['auto_open']}")
+
+    if args.prefix is None:
         return
 
     new_prefix = args.prefix.strip().lower()
@@ -208,7 +251,6 @@ def cmd_config(args):
               "lowercase letters, numbers, and hyphens.")
         sys.exit(1)
 
-    settings = load_settings()
     old_prefix = settings.get("prefix", "go")
 
     if new_prefix == old_prefix:
@@ -316,6 +358,8 @@ def main():
     p_cfg = subs.add_parser("config", help="View or change LinkJumper settings")
     p_cfg.add_argument("--prefix", help="Set the URL prefix (default: go)",
                        default=None)
+    p_cfg.add_argument("--auto-open", dest="auto_open", default=None,
+                       help="Auto-open links in browser when added (true/false)")
 
     p_go = subs.add_parser("go", help="Open a shortcut in the default browser")
     p_go.add_argument("key", help="Short name to open (e.g. 'gh')")
