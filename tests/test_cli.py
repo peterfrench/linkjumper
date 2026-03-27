@@ -96,14 +96,14 @@ def test_cmd_remove_missing_key_exits(tmp_project_dir, tmp_webloc_dir):
 
 def test_cmd_config_shows_current(tmp_project_dir, capsys):
     config.save_settings({"prefix": "go"})
-    args = argparse.Namespace(prefix=None)
+    args = argparse.Namespace(prefix=None, auto_open=None)
     cmd_config(args)
     out = capsys.readouterr().out
     assert "go" in out
 
 
 def test_cmd_config_validates_prefix(tmp_project_dir):
-    args = argparse.Namespace(prefix="123bad!")
+    args = argparse.Namespace(prefix="123bad!", auto_open=None)
     with pytest.raises(SystemExit):
         cmd_config(args)
 
@@ -127,7 +127,7 @@ def test_cmd_config_changes_prefix(
         lambda *a, **kw: type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})(),
     )
 
-    args = argparse.Namespace(prefix="mylinks")
+    args = argparse.Namespace(prefix="mylinks", auto_open=None)
     cmd_config(args)
 
     # settings.json should reflect the new prefix
