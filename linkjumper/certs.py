@@ -48,7 +48,9 @@ def generate_certs(prefix):
         )
 
     # Server cert signed by CA
-    sign_server_cert(prefix)
+    srv_cert = CERT_DIR / "server.pem"
+    if not srv_cert.exists():
+        sign_server_cert(prefix)
 
 
 def _run_openssl(cmd):
@@ -103,6 +105,16 @@ def sign_server_cert(prefix):
              "-extensions", "v3_req"],
         )
     (CERT_DIR / "ca.srl").unlink(missing_ok=True)
+
+
+def has_ca_trust():
+    """Check if a LinkJumper CA certificate is already in the System keychain."""
+    r = subprocess.run(
+        ["security", "find-certificate", "-a", "-c", "LinkJumper Local CA",
+         "-Z", "/Library/Keychains/System.keychain"],
+        capture_output=True, text=True,
+    )
+    return r.returncode == 0 and "SHA-1 hash:" in r.stdout
 
 
 def trust_ca():

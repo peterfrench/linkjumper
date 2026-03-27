@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from linkjumper.browsers import print_browser_instructions
-from linkjumper.certs import generate_certs, remove_ca_trust, sign_server_cert, trust_ca
+from linkjumper.certs import generate_certs, has_ca_trust, remove_ca_trust, sign_server_cert, trust_ca
 from linkjumper.config import (
     BIND_ADDR, CERT_DIR, DEFAULT_REDIRECTS, PLIST_LABEL, PLIST_PATH,
     REDIRECTS_PATH, SETTINGS_PATH, WEBLOC_DIR,
@@ -57,11 +57,14 @@ def cmd_setup(args):
     generate_certs(prefix)
     print(f"      Certificates written to {CERT_DIR}/")
 
-    # 4. Trust CA (remove any old ones first)
-    print("[4/6] Trusting CA certificate (you may be prompted for your password) ...")
-    remove_ca_trust()
-    trust_ca()
-    print("      CA trusted in System keychain.")
+    # 4. Trust CA (skip if already trusted)
+    if has_ca_trust():
+        print("[4/6] CA certificate already trusted in System keychain.")
+    else:
+        print("[4/6] Trusting CA certificate (you may be prompted for your password) ...")
+        remove_ca_trust()
+        trust_ca()
+        print("      CA trusted in System keychain.")
 
     # 5. launchd
     print("[5/6] Installing launchd daemon ...")
