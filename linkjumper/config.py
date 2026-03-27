@@ -46,14 +46,18 @@ def get_prefix():
 def ensure_data_dir():
     """Create the data directory if it doesn't exist.
 
-    When run under sudo, chown to the real user so non-root commands
-    (add, remove, list) can read/write config files.
+    When run under sudo, chown the directory and all files inside it
+    to the real user so non-root commands (add, remove, list) can
+    read/write config files.
     """
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     uid = int(os.environ.get("SUDO_UID", -1))
     gid = int(os.environ.get("SUDO_GID", -1))
     if uid >= 0:
         os.chown(DATA_DIR, uid, gid)
+        for f in DATA_DIR.iterdir():
+            if f.is_file():
+                os.chown(f, uid, gid)
 
 
 # ---------------------------------------------------------------------------
