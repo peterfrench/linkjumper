@@ -157,6 +157,8 @@ def cmd_add(args):
     redirects = load_redirects()
     key = args.key.strip("/")
     url = args.url
+    if "://" not in url:
+        url = "https://" + url
 
     if key in redirects:
         old = redirects[key]
@@ -167,6 +169,9 @@ def cmd_add(args):
         redirects[key] = url
         save_redirects(redirects)
         print(f"Added: {pfx}/{key}  ->  {url}")
+
+    shortcut_url = f"http://{pfx}/{key}/"
+    print(f"  {shortcut_url}")
 
     create_webloc(pfx, key, url)
     print("Server will pick up the change automatically.")
