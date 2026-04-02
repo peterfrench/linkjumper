@@ -25,8 +25,9 @@ def add_hosts_entry(prefix):
     if has_hosts_entry(prefix):
         return False
     subprocess.run(
-        f'echo "{BIND_ADDR}\t{prefix}" | sudo tee -a /etc/hosts >/dev/null',
-        shell=True, check=True,
+        ["sudo", "tee", "-a", "/etc/hosts"],
+        input=f"{BIND_ADDR}\t{prefix}\n",
+        text=True, stdout=subprocess.DEVNULL, check=True,
     )
     return True
 
