@@ -78,7 +78,7 @@ def load_redirects():
     try:
         with open(REDIRECTS_PATH) as f:
             return json.load(f)
-    except FileNotFoundError:
+    except (FileNotFoundError, json.JSONDecodeError):
         return {}
 
 

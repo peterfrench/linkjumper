@@ -60,3 +60,21 @@ def test_get_prefix_default(tmp_project_dir):
 def test_get_prefix_custom(tmp_project_dir):
     save_settings({"prefix": "links"})
     assert get_prefix() == "links"
+
+
+def test_load_redirects_invalid_json(tmp_project_dir):
+    """Returns {} on malformed JSON."""
+    (tmp_project_dir / "redirects.json").write_text("{bad json")
+    assert load_redirects() == {}
+
+
+def test_load_redirects_empty_file(tmp_project_dir):
+    """Returns {} on empty file."""
+    (tmp_project_dir / "redirects.json").write_text("")
+    assert load_redirects() == {}
+
+
+def test_load_settings_empty_file(tmp_project_dir):
+    """Returns default on empty file."""
+    (tmp_project_dir / "config.json").write_text("")
+    assert load_settings() == {"prefix": "go"}
