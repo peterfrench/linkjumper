@@ -38,11 +38,14 @@ Setup configures `/etc/hosts`, generates SSL certificates, trusts the CA in your
 
 ```bash
 linkjumper add gh https://github.com       # Add a shortcut
+linkjumper add gh github.com               # https:// is added automatically
 linkjumper add gh https://gitlab.com        # Update an existing one
 linkjumper remove gh                        # Remove it
 linkjumper list                             # List all shortcuts
 linkjumper go gh                            # Open in default browser
 ```
+
+The `linkj` alias works anywhere `linkjumper` does.
 
 Changes take effect automatically — no restart needed.
 
@@ -55,7 +58,7 @@ Changes take effect automatically — no restart needed.
 | `go/gh?tab=repos` | `https://github.com?tab=repos` |
 | `go/gh/user/repo?tab=repos` | `https://github.com/user/repo?tab=repos` |
 
-The root page (`http://go/`) shows an index of all your shortcuts.
+The root page (`http://go/`) shows a web UI where you can view, add, and remove shortcuts.
 
 ### Spotlight
 
@@ -85,7 +88,15 @@ sudo linkjumper config --prefix links
 
 This updates `/etc/hosts`, regenerates the SSL certificate, renames your Spotlight files, and restarts the service. All your shortcuts now live under `links/` instead of `go/`.
 
-View current config:
+### Auto-open
+
+Automatically open shortcuts in your browser when you add them:
+
+```bash
+linkjumper config --auto-open true
+```
+
+### View config
 
 ```bash
 linkjumper config
@@ -109,8 +120,11 @@ The service runs as a launchd daemon and starts automatically at boot. Logs are 
 ## Uninstall
 
 ```bash
-sudo linkjumper teardown
-pip3 uninstall linkjumper        # or: brew uninstall linkjumper
+# Homebrew
+brew uninstall linkjumper
+
+# Manual
+sudo bash uninstall.sh
 ```
 
 Teardown reverses all system changes (hosts entry, CA trust, launchd service, loopback alias, Spotlight files). Your `redirects.json` and `config.json` are preserved.
