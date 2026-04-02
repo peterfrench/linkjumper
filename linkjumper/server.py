@@ -8,6 +8,7 @@ Send SIGHUP to reload configuration without restart.
 import html as html_module
 import http.server
 import json
+import re
 import signal
 import ssl
 import sys
@@ -17,33 +18,38 @@ from urllib.parse import parse_qs, unquote
 
 from linkjumper.config import (
     BIND_ADDR, CERT_DIR, REDIRECTS_PATH, SETTINGS_PATH,
+    load_settings as _config_load_settings,
     save_redirects as _save_redirects,
 )
 from linkjumper.webloc import create_webloc, delete_webloc
 
+_lock = threading.Lock()
 prefix = "go"
 redirects = {}
+
+MAX_POST_BYTES = 16 * 1024
+KEY_PATTERN = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9._-]*$')
 
 
 def load_settings():
     global prefix
-    try:
-        with open(SETTINGS_PATH) as f:
-            settings = json.load(f)
+    settings = _config_load_settings()
+    with _lock:
         prefix = settings.get("prefix", "go")
-    except (FileNotFoundError, json.JSONDecodeError):
-        prefix = "go"
 
 
 def load_redirects(signum=None, frame=None):
     global redirects
     try:
         with open(REDIRECTS_PATH) as f:
-            redirects = json.load(f)
-        print(f"Loaded {len(redirects)} redirects from {REDIRECTS_PATH}", flush=True)
+            loaded = json.load(f)
+        with _lock:
+            redirects = loaded
+        print(f"Loaded {len(loaded)} redirects from {REDIRECTS_PATH}", flush=True)
     except FileNotFoundError:
         print(f"Config not found at {REDIRECTS_PATH}, starting with empty redirects", flush=True)
-        redirects = {}
+        with _lock:
+            redirects = {}
     except json.JSONDecodeError as e:
         print(f"Invalid JSON in {REDIRECTS_PATH}: {e}", file=sys.stderr, flush=True)
     except Exception as e:
@@ -80,8 +86,11 @@ class LinkJumperHandler(http.server.BaseHTTPRequestHandler):
         key = parts[0]
         remainder = parts[1] if len(parts) > 1 else ""
 
-        if key in redirects:
-            target = redirects[key].rstrip("/")
+        with _lock:
+            target_url = redirects.get(key)
+
+        if target_url is not None:
+            target = target_url.rstrip("/")
             if remainder:
                 target += "/" + remainder
             target += query
@@ -94,27 +103,48 @@ class LinkJumperHandler(http.server.BaseHTTPRequestHandler):
             self.send_not_found(key)
 
     def do_POST(self):
-        length = int(self.headers.get("Content-Length", 0))
-        body = self.rfile.read(length).decode()
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+        except (ValueError, TypeError):
+            self.send_error(400, "Invalid Content-Length")
+            return
+
+        if length > MAX_POST_BYTES:
+            self.send_error(413, "Request body too large")
+            return
+
+        try:
+            body = self.rfile.read(length).decode("utf-8")
+        except UnicodeDecodeError:
+            self.send_error(400, "Invalid encoding")
+            return
+
         params = parse_qs(body)
         action = params.get("action", [""])[0]
 
         if action == "add":
             key = params.get("key", [""])[0].strip().strip("/")
             url = params.get("url", [""])[0].strip()
-            if key and url:
+            if key and url and KEY_PATTERN.match(key):
                 if "://" not in url:
                     url = "https://" + url
-                redirects[key] = url
-                _save_redirects(redirects)
-                create_webloc(prefix, key, url)
+                with _lock:
+                    redirects[key] = url
+                    _save_redirects(redirects)
+                    pfx = prefix
+                create_webloc(pfx, key, url)
 
         elif action == "remove":
             key = params.get("key", [""])[0].strip()
-            if key and key in redirects:
-                del redirects[key]
-                _save_redirects(redirects)
-                delete_webloc(prefix, key)
+            if key:
+                with _lock:
+                    removed = key in redirects
+                    if removed:
+                        del redirects[key]
+                        _save_redirects(redirects)
+                    pfx = prefix
+                if removed:
+                    delete_webloc(pfx, key)
 
         self.send_response(303)
         self.send_header("Location", "/")
@@ -124,19 +154,23 @@ class LinkJumperHandler(http.server.BaseHTTPRequestHandler):
         self.do_GET()
 
     def send_index(self):
+        with _lock:
+            pfx = prefix
+            reds = dict(redirects)
+
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
 
-        pfx = html_module.escape(prefix)
+        escaped_pfx = html_module.escape(pfx)
         rows = ""
-        for i, key in enumerate(sorted(redirects)):
-            escaped_url = html_module.escape(redirects[key])
+        for i, key in enumerate(sorted(reds)):
+            escaped_url = html_module.escape(reds[key])
             escaped_key = html_module.escape(key)
             tab = i + 4
             rows += (
                 f"<tr>"
-                f'<td><a href="/{escaped_key}" tabindex="{tab}">{pfx}/{escaped_key}</a></td>'
+                f'<td><a href="/{escaped_key}" tabindex="{tab}">{escaped_pfx}/{escaped_key}</a></td>'
                 f"<td><code>{escaped_url}</code></td>"
                 f'<td><form method="POST" style="margin:0">'
                 f'<input type="hidden" name="action" value="remove">'
@@ -180,7 +214,7 @@ class LinkJumperHandler(http.server.BaseHTTPRequestHandler):
 </head>
 <body>
 <h1>LinkJumper</h1>
-<p>{len(redirects)} shortcut{"s" if len(redirects) != 1 else ""} configured.</p>
+<p>{len(reds)} shortcut{"s" if len(reds) != 1 else ""} configured.</p>
 <form method="POST" class="add-form">
   <input type="hidden" name="action" value="add">
   <input type="text" name="key" placeholder="key" required autofocus tabindex="1">
@@ -195,6 +229,9 @@ class LinkJumperHandler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(page.encode())
 
     def send_not_found(self, key):
+        with _lock:
+            pfx = prefix
+
         self.send_response(404)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
@@ -210,7 +247,7 @@ class LinkJumperHandler(http.server.BaseHTTPRequestHandler):
 </head>
 <body>
 <h1>404</h1>
-<p>No link found for <strong>{html_module.escape(prefix)}/{safe_key}</strong></p>
+<p>No link found for <strong>{html_module.escape(pfx)}/{safe_key}</strong></p>
 <p><a href="/">View all shortcuts</a></p>
 </body>
 </html>"""
@@ -247,6 +284,7 @@ def run_https():
         return
 
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     ctx.load_cert_chain(str(cert_file), str(key_file))
 
     server = http.server.ThreadingHTTPServer((BIND_ADDR, 443), LinkJumperHandler)
