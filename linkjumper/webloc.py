@@ -1,6 +1,7 @@
 """Spotlight .webloc file management."""
 
 import os
+from xml.sax.saxutils import escape as xml_escape
 
 from linkjumper.config import WEBLOC_DIR
 
@@ -30,7 +31,7 @@ def _webloc_xml(url):
         '<plist version="1.0">\n'
         '<dict>\n'
         '    <key>URL</key>\n'
-        f'    <string>{url}</string>\n'
+        f'    <string>{xml_escape(url)}</string>\n'
         '</dict>\n'
         '</plist>\n'
     )

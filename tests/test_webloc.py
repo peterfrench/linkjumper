@@ -89,3 +89,32 @@ def test_remove_all_weblocs_removes_empty_dir(tmp_webloc_dir):
     remove_all_weblocs("go")
 
     assert not tmp_webloc_dir.exists()
+
+
+# ---------------------------------------------------------------------------
+# XML escaping tests
+# ---------------------------------------------------------------------------
+
+
+def test_webloc_escapes_ampersand_in_url(tmp_webloc_dir):
+    """URLs with & are XML-escaped."""
+    create_webloc("go", "test", "https://example.com?a=1&b=2")
+    content = (tmp_webloc_dir / "go test.webloc").read_text()
+    assert "&amp;" in content
+    assert "<string>https://example.com?a=1&amp;b=2</string>" in content
+
+
+def test_webloc_escapes_angle_brackets_in_url(tmp_webloc_dir):
+    """URLs with < and > are XML-escaped."""
+    create_webloc("go", "test", "https://example.com/<path>")
+    content = (tmp_webloc_dir / "go test.webloc").read_text()
+    assert "&lt;path&gt;" in content
+    assert "<path>" not in content.split("<string>")[1]
+
+
+def test_webloc_escapes_quotes_in_url(tmp_webloc_dir):
+    """URLs with quotes are safe in XML context."""
+    create_webloc("go", "test", 'https://example.com/q="hello"')
+    content = (tmp_webloc_dir / "go test.webloc").read_text()
+    assert "<plist" in content
+    assert "example.com" in content
