@@ -74,7 +74,7 @@ linkjumper browser
 
 This prints setup instructions for every browser it detects on your system (Chrome, Firefox, Safari, Arc, Edge, Brave, Vivaldi, Opera).
 
-**Safari tip:** Add a trailing slash — `go/gh/` — and Safari navigates directly without any configuration.
+**Browser tip:** Add a trailing slash — `go/gh/` — so the browser navigates directly without any configuration.
 
 ## Configuration
 

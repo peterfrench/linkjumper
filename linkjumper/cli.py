@@ -105,7 +105,7 @@ def cmd_setup(args):
     print(f"  Example:          http://{prefix}/gh  ->  https://github.com")
     print(f"  Spotlight:        Cmd+Space, type '{prefix} gh', press Enter")
     print()
-    print(f"  Safari tip:       {prefix}/gh/ (trailing slash) navigates directly.")
+    print(f"  Browser tip:      {prefix}/gh/ (trailing slash) navigates directly.")
     print(f"  Run `linkjumper browser` for browser-specific setup tips.")
 
 
