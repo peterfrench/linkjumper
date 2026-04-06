@@ -4,6 +4,7 @@ import re
 import subprocess
 import sys
 import textwrap
+import time
 from pathlib import Path
 
 from linkjumper.config import (
@@ -144,13 +145,15 @@ def build_plist():
 
 def install_launchd():
     subprocess.run(
+        ["sudo", "launchctl", "bootout", f"system/{PLIST_LABEL}"],
+        capture_output=True,
+    )
+    subprocess.run(["sudo", "rm", "-f", PLIST_PATH], capture_output=True)
+    time.sleep(2)
+    subprocess.run(
         ["sudo", "tee", PLIST_PATH],
         input=build_plist(), text=True,
         stdout=subprocess.DEVNULL, check=True,
-    )
-    subprocess.run(
-        ["sudo", "launchctl", "bootout", f"system/{PLIST_LABEL}"],
-        capture_output=True,
     )
     subprocess.run(
         ["sudo", "launchctl", "bootstrap", "system", PLIST_PATH],

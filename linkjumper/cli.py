@@ -284,10 +284,7 @@ def cmd_config(args):
 
     # Restart service to pick up new cert
     print("  Restarting service ...")
-    subprocess.run(["sudo", "launchctl", "bootout", f"system/{PLIST_LABEL}"],
-                   capture_output=True)
-    subprocess.run(["sudo", "launchctl", "bootstrap", "system", PLIST_PATH],
-                   capture_output=True)
+    install_launchd()
 
     print(f"\nDone! Shortcuts are now at: {new_prefix}/")
     print(f"  Example: {new_prefix}/gh  ->  https://github.com")
