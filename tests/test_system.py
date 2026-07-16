@@ -1,5 +1,6 @@
 """Tests for linkjumper.system — /etc/hosts, loopback, launchd."""
 
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -64,3 +65,18 @@ def test_build_plist_contains_label():
     assert "com.linkjumper.redirect" in xml
     assert "linkjumper.server" in xml
     assert "PYTHONPATH" in xml
+
+
+def test_build_plist_defaults_to_sys_executable(monkeypatch):
+    monkeypatch.delenv("LINKJUMPER_PYTHON", raising=False)
+    xml = build_plist()
+    assert sys.executable in xml
+
+
+def test_build_plist_prefers_linkjumper_python_env(monkeypatch):
+    """The brew wrapper sets LINKJUMPER_PYTHON to the stable opt/python@3
+    alias path; the plist must use it instead of the resolved interpreter."""
+    monkeypatch.setenv("LINKJUMPER_PYTHON", "/opt/homebrew/opt/python@3/bin/python3")
+    xml = build_plist()
+    assert "/opt/homebrew/opt/python@3/bin/python3" in xml
+    assert sys.executable not in xml

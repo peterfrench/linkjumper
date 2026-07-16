@@ -11,7 +11,7 @@ from pathlib import Path
 from linkjumper.browsers import print_browser_instructions
 from linkjumper.certs import generate_certs, has_ca_trust, remove_ca_trust, sign_server_cert, trust_ca
 from linkjumper.config import (
-    BIND_ADDR, CERT_DIR, DEFAULT_REDIRECTS, PLIST_LABEL, PLIST_PATH,
+    BIND_ADDR, CERT_DIR, DEFAULT_REDIRECTS, ERR_PATH, PLIST_LABEL, PLIST_PATH,
     REDIRECTS_PATH, SETTINGS_PATH, WEBLOC_DIR,
     ensure_data_dir, get_prefix, load_redirects, load_settings,
     save_redirects, save_settings,
@@ -297,18 +297,41 @@ def cmd_go(args):
     subprocess.run(["open", url])
 
 
+def _service_pid():
+    """Return the PID of the running server according to launchd, or None."""
+    result = subprocess.run(
+        ["sudo", "launchctl", "print", f"system/{PLIST_LABEL}"],
+        capture_output=True, text=True,
+    )
+    m = re.search(r"^\s*pid = (\d+)", result.stdout, re.MULTILINE)
+    return int(m.group(1)) if m else None
+
+
 def cmd_start(args):
+    if not Path(PLIST_PATH).exists():
+        print("No service installed. Run: sudo linkjumper setup")
+        sys.exit(1)
     result = subprocess.run(
         ["sudo", "launchctl", "bootstrap", "system", PLIST_PATH],
         capture_output=True, text=True,
     )
     if result.returncode == 0:
         print("LinkJumper started.")
-    elif "already loaded" in result.stderr.lower() or result.returncode == 37:
-        print("LinkJumper is already running.")
-    else:
-        print(f"Failed to start: {result.stderr.strip()}")
+        return
+    # launchctl reports an already-loaded service as EALREADY (37) with
+    # "already loaded" on older macOS, or as EIO (5) on newer versions.
+    if result.returncode in (5, 37) or "already" in result.stderr.lower():
+        pid = _service_pid()
+        if pid:
+            print(f"LinkJumper is already running (pid {pid}).")
+            return
+        print("The service is loaded but not running — its plist may point "
+              "at stale paths (e.g. after a Homebrew upgrade).")
+        print(f"  Check: {ERR_PATH}")
+        print("  Fix:   sudo linkjumper setup")
         sys.exit(1)
+    print(f"Failed to start: {result.stderr.strip()}")
+    sys.exit(1)
 
 
 def cmd_stop(args):
@@ -318,11 +341,17 @@ def cmd_stop(args):
     )
     if result.returncode == 0:
         print("LinkJumper stopped.")
-    elif "could not find service" in result.stderr.lower() or result.returncode == 113:
+        return
+    # launchctl reports a not-loaded service as 113 ("Could not find
+    # service") on older macOS, or as ESRCH (3, "No such process") on
+    # newer versions.
+    if (result.returncode in (3, 113)
+            or "could not find service" in result.stderr.lower()
+            or "no such process" in result.stderr.lower()):
         print("LinkJumper is not running.")
-    else:
-        print(f"Failed to stop: {result.stderr.strip()}")
-        sys.exit(1)
+        return
+    print(f"Failed to stop: {result.stderr.strip()}")
+    sys.exit(1)
 
 
 def cmd_browser(args):

@@ -1,11 +1,20 @@
 """Tests for linkjumper.cli — command handlers."""
 
 import argparse
+from pathlib import Path
 
 import pytest
 
 from linkjumper import config
-from linkjumper.cli import cmd_add, cmd_config, cmd_list, cmd_remove
+from linkjumper.cli import (
+    cmd_add, cmd_config, cmd_list, cmd_remove, cmd_start, cmd_stop,
+)
+
+
+def _proc(returncode, stdout="", stderr=""):
+    return type("R", (), {
+        "returncode": returncode, "stdout": stdout, "stderr": stderr,
+    })()
 
 
 # ---------------------------------------------------------------------------
@@ -133,3 +142,99 @@ def test_cmd_config_changes_prefix(
     # settings.json should reflect the new prefix
     settings = config.load_settings()
     assert settings["prefix"] == "mylinks"
+
+
+# ---------------------------------------------------------------------------
+# cmd_start / cmd_stop
+# ---------------------------------------------------------------------------
+
+
+def test_cmd_start_success(monkeypatch, capsys):
+    monkeypatch.setattr(Path, "exists", lambda self: True)
+    monkeypatch.setattr("subprocess.run", lambda *a, **kw: _proc(0))
+    cmd_start(argparse.Namespace())
+    assert "started" in capsys.readouterr().out
+
+
+def test_cmd_start_no_plist_suggests_setup(monkeypatch, capsys):
+    monkeypatch.setattr(Path, "exists", lambda self: False)
+    with pytest.raises(SystemExit):
+        cmd_start(argparse.Namespace())
+    assert "sudo linkjumper setup" in capsys.readouterr().out
+
+
+def test_cmd_start_already_loaded_eio_and_running(monkeypatch, capsys):
+    """Newer macOS reports an already-loaded service as EIO (5)."""
+    monkeypatch.setattr(Path, "exists", lambda self: True)
+
+    def fake_run(cmd, **kw):
+        if "bootstrap" in cmd:
+            return _proc(5, stderr="Bootstrap failed: 5: Input/output error")
+        return _proc(0, stdout="\tpid = 1234\n")  # launchctl print
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    cmd_start(argparse.Namespace())
+    assert "already running (pid 1234)" in capsys.readouterr().out
+
+
+def test_cmd_start_loaded_but_dead_suggests_setup(monkeypatch, capsys):
+    """Loaded but crash-looping (e.g. stale interpreter path in the plist)."""
+    monkeypatch.setattr(Path, "exists", lambda self: True)
+
+    def fake_run(cmd, **kw):
+        if "bootstrap" in cmd:
+            return _proc(5, stderr="Bootstrap failed: 5: Input/output error")
+        return _proc(0, stdout="\tstate = not running\n")  # no pid line
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    with pytest.raises(SystemExit):
+        cmd_start(argparse.Namespace())
+    assert "sudo linkjumper setup" in capsys.readouterr().out
+
+
+def test_cmd_start_already_loaded_old_macos(monkeypatch, capsys):
+    monkeypatch.setattr(Path, "exists", lambda self: True)
+
+    def fake_run(cmd, **kw):
+        if "bootstrap" in cmd:
+            return _proc(37, stderr="service already loaded")
+        return _proc(0, stdout="\tpid = 99\n")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    cmd_start(argparse.Namespace())
+    assert "already running" in capsys.readouterr().out
+
+
+def test_cmd_stop_success(monkeypatch, capsys):
+    monkeypatch.setattr("subprocess.run", lambda *a, **kw: _proc(0))
+    cmd_stop(argparse.Namespace())
+    assert "stopped" in capsys.readouterr().out
+
+
+def test_cmd_stop_not_running_esrch(monkeypatch, capsys):
+    """Newer macOS reports a not-loaded service as ESRCH (3)."""
+    monkeypatch.setattr(
+        "subprocess.run",
+        lambda *a, **kw: _proc(3, stderr="Boot-out failed: 3: No such process"),
+    )
+    cmd_stop(argparse.Namespace())
+    assert "not running" in capsys.readouterr().out
+
+
+def test_cmd_stop_not_running_old_macos(monkeypatch, capsys):
+    monkeypatch.setattr(
+        "subprocess.run",
+        lambda *a, **kw: _proc(113, stderr="Could not find service"),
+    )
+    cmd_stop(argparse.Namespace())
+    assert "not running" in capsys.readouterr().out
+
+
+def test_cmd_stop_other_failure_exits(monkeypatch, capsys):
+    monkeypatch.setattr(
+        "subprocess.run",
+        lambda *a, **kw: _proc(1, stderr="Boot-out failed: 150: whatever"),
+    )
+    with pytest.raises(SystemExit):
+        cmd_stop(argparse.Namespace())
+    assert "Failed to stop" in capsys.readouterr().out

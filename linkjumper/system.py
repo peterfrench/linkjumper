@@ -1,5 +1,6 @@
 """macOS system-level operations: /etc/hosts, loopback, DNS, launchd."""
 
+import os
 import re
 import subprocess
 import sys
@@ -102,9 +103,15 @@ def cleanup_dotgo_artifacts():
 # ---------------------------------------------------------------------------
 
 def build_plist():
-    python = sys.executable
-    # The parent of the linkjumper package directory
-    package_root = str(Path(__file__).resolve().parent.parent)
+    # Prefer an explicitly provided interpreter path: sys.executable resolves
+    # symlinks to the versioned keg (e.g. opt/python@3.14), which strands the
+    # service when Homebrew bumps Python. The brew wrapper sets
+    # LINKJUMPER_PYTHON to the stable opt/python@3 alias path.
+    python = os.environ.get("LINKJUMPER_PYTHON") or sys.executable
+    # The parent of the linkjumper package directory. Don't resolve symlinks:
+    # under Homebrew the package is reached via the stable opt/linkjumper
+    # symlink, which survives upgrades that delete the old Cellar keg.
+    package_root = str(Path(__file__).absolute().parent.parent)
     return textwrap.dedent(f"""\
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
