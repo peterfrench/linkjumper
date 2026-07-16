@@ -243,12 +243,30 @@ class LinkJumperHandler(http.server.BaseHTTPRequestHandler):
   body {{ font-family: -apple-system, sans-serif; max-width: 480px;
          margin: 120px auto; text-align: center; color: #1d1d1f; }}
   a {{ color: #0066cc; text-decoration: none; }}
+  .create {{ color: #6e6e73; font-size: 14px; margin-top: 32px; }}
+  .add-form {{ display: flex; gap: 8px; margin: 12px 0 32px; }}
+  .add-form input {{ padding: 8px 12px; border: 1px solid #d2d2d7; border-radius: 8px;
+                     font-size: 14px; font-family: inherit; }}
+  .add-form input[name="key"] {{ width: 120px; }}
+  .add-form input[name="url"] {{ flex: 1; }}
+  .add-form button {{ padding: 8px 16px; background: #0066cc; color: white;
+                      border: none; border-radius: 8px; font-size: 14px;
+                      cursor: pointer; font-family: inherit; }}
+  .add-form button:hover {{ background: #0055b3; }}
 </style>
 </head>
 <body>
 <h1>404</h1>
 <p>No link found for <strong>{html_module.escape(pfx)}/{safe_key}</strong></p>
+<p class="create">Create a new link?</p>
+<form method="POST" class="add-form">
+  <input type="hidden" name="action" value="add">
+  <input type="text" name="key" value="{safe_key}" placeholder="key" required>
+  <input type="text" name="url" placeholder="https://example.com" required autofocus>
+  <button type="submit">Create</button>
+</form>
 <p><a href="/">View all shortcuts</a></p>
+<script>document.querySelector('.add-form input[name="url"]').focus();</script>
 </body>
 </html>"""
         self.wfile.write(page.encode())

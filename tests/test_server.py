@@ -84,6 +84,43 @@ def test_unknown_key_returns_404(http_server):
     conn.close()
 
 
+def test_404_page_offers_create_form(http_server):
+    host, port = http_server
+    conn = http.client.HTTPConnection(host, port)
+    conn.request("GET", "/nope")
+    body = conn.getresponse().read().decode()
+    assert "Create a new link?" in body
+    # Key field is prefilled with the missing key; cursor lands on the URL field
+    assert 'name="key" value="nope"' in body
+    assert 'name="url" placeholder="https://example.com" required autofocus' in body
+    assert '<input type="hidden" name="action" value="add">' in body
+    conn.close()
+
+
+def test_404_create_form_escapes_key(http_server):
+    host, port = http_server
+    conn = http.client.HTTPConnection(host, port)
+    conn.request("GET", '/"><script>alert(1)</script>')
+    body = conn.getresponse().read().decode()
+    assert "<script>alert(1)" not in body
+    assert 'value="&quot;&gt;&lt;script&gt;' in body
+    conn.close()
+
+
+def test_post_add_from_404_path(http_server):
+    """The 404 form posts to the missing-key path, not to /."""
+    host, port = http_server
+    conn = http.client.HTTPConnection(host, port)
+    body = urlencode({"action": "add", "key": "nope", "url": "https://example.com"})
+    conn.request("POST", "/nope", body,
+                 {"Content-Type": "application/x-www-form-urlencoded"})
+    resp = conn.getresponse()
+    assert resp.status == 303
+    assert resp.getheader("Location") == "/"
+    assert server_mod.redirects["nope"] == "https://example.com"
+    conn.close()
+
+
 def test_head_request(http_server):
     host, port = http_server
     conn = http.client.HTTPConnection(host, port)
