@@ -113,9 +113,12 @@ Shortcuts, settings, and certificates are stored in `/usr/local/etc/linkjumper/`
 ```bash
 sudo linkjumper start    # Start the service
 sudo linkjumper stop     # Stop the service
+sudo linkjumper restart  # Restart the service (run after `brew upgrade linkjumper`)
 ```
 
 The service runs as a launchd daemon and starts automatically at boot. Logs are at `/var/log/link-jumper.log`.
+
+After upgrading linkjumper, the running service keeps the old code in memory until it's restarted — run `sudo linkjumper restart` to pick up the new version.
 
 ## Uninstall
 

@@ -7,7 +7,8 @@ import pytest
 
 from linkjumper import config
 from linkjumper.cli import (
-    cmd_add, cmd_config, cmd_list, cmd_remove, cmd_start, cmd_stop,
+    cmd_add, cmd_config, cmd_list, cmd_remove, cmd_restart, cmd_start,
+    cmd_stop,
 )
 
 
@@ -228,6 +229,40 @@ def test_cmd_stop_not_running_old_macos(monkeypatch, capsys):
     )
     cmd_stop(argparse.Namespace())
     assert "not running" in capsys.readouterr().out
+
+
+def test_cmd_restart_stops_then_starts(monkeypatch, capsys):
+    monkeypatch.setattr(Path, "exists", lambda self: True)
+    monkeypatch.setattr("linkjumper.cli.time.sleep", lambda s: None)
+    calls = []
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd)
+        return _proc(0)
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    cmd_restart(argparse.Namespace())
+    out = capsys.readouterr().out
+    assert "stopped" in out
+    assert "started" in out
+    assert any("bootout" in c for c in calls)
+    assert any("bootstrap" in c for c in calls)
+
+
+def test_cmd_restart_when_not_running_still_starts(monkeypatch, capsys):
+    monkeypatch.setattr(Path, "exists", lambda self: True)
+    monkeypatch.setattr("linkjumper.cli.time.sleep", lambda s: None)
+
+    def fake_run(cmd, **kw):
+        if "bootout" in cmd:
+            return _proc(3, stderr="Boot-out failed: 3: No such process")
+        return _proc(0)
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    cmd_restart(argparse.Namespace())
+    out = capsys.readouterr().out
+    assert "not running" in out
+    assert "started" in out
 
 
 def test_cmd_stop_other_failure_exits(monkeypatch, capsys):

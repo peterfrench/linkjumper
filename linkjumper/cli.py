@@ -6,6 +6,7 @@ import re
 import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from linkjumper.browsers import print_browser_instructions
@@ -354,6 +355,12 @@ def cmd_stop(args):
     sys.exit(1)
 
 
+def cmd_restart(args):
+    cmd_stop(args)
+    time.sleep(2)  # let launchd release the label before re-bootstrapping
+    cmd_start(args)
+
+
 def cmd_browser(args):
     print_browser_instructions(get_prefix())
 
@@ -392,6 +399,8 @@ def main():
 
     subs.add_parser("start", help="Start the LinkJumper service")
     subs.add_parser("stop", help="Stop the LinkJumper service")
+    subs.add_parser("restart",
+                    help="Restart the LinkJumper service (e.g. after an upgrade)")
     subs.add_parser("browser", help="Show browser setup instructions")
 
     args = parser.parse_args()
@@ -406,10 +415,11 @@ def main():
         "go": cmd_go,
         "start": cmd_start,
         "stop": cmd_stop,
+        "restart": cmd_restart,
         "browser": cmd_browser,
     }
 
-    NEEDS_ROOT = {"setup", "teardown", "start", "stop"}
+    NEEDS_ROOT = {"setup", "teardown", "start", "stop", "restart"}
 
     if args.command in handlers:
         if args.command in NEEDS_ROOT and os.geteuid() != 0:

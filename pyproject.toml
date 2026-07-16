@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "linkjumper"
-version = "1.3.3"
+version = "1.3.4"
 description = "Local URL shortener for macOS"
 requires-python = ">=3.9"
 
